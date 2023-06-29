@@ -1,6 +1,24 @@
 import numpy as np
 import pandas as pd
 from scipy import stats
+import warnings
+
+
+def create_worksheet(n_operators, n_parts, n_repeats):
+    operators = []
+    parts = []
+    data = []
+    mydf = pd.DataFrame(columns=['Repeat', 'Operator', 'Part'])
+    randomize = lambda x: np.random.choice(x, x, replace=False)+1
+    
+    for i in range(n_repeats):   
+        for operator in range(n_operators):
+            parts = randomize(n_parts)
+            mydf = mydf.append(pd.DataFrame([{a:b, c:d, e:f, g:h} for a,b,c,d,e,f,g,h in zip(['Repeat']*len(parts), [i+1]*len(parts), 
+                                                                                             ['Operator']*len(parts), [operator+1]*len(parts), 
+                                                                                             ['Part']*len(parts), parts, 
+                                                                                             ['Measurement']*len(parts), ['']*len(parts))]))
+    return mydf.reset_index(drop=True)
 
 def read_grr_data(path):
     df = pd.read_excel(path)
@@ -8,12 +26,13 @@ def read_grr_data(path):
     return df
 
 def sumSquares(GRR, interaction=True):
+    
     df = GRR.data
     grand_mean = df['Measurement'].mean()
     SS_Total = np.sum((df['Measurement'].values - grand_mean)**2)
 
-    SS_Part = GRR.n_operators * GRR.n_repeats * np.sum((df.groupby(by='Part').mean()['Measurement'].values - grand_mean)**2)
-    SS_Operator = GRR.n_parts * GRR.n_repeats * np.sum((df.groupby(by='Operator').mean()['Measurement'].values - grand_mean)**2)
+    SS_Part = GRR.n_operators * GRR.n_repeats * np.sum((df.groupby(by='Part').mean(numeric_only=True)['Measurement'].values - grand_mean)**2)
+    SS_Operator = GRR.n_parts * GRR.n_repeats * np.sum((df.groupby(by='Operator').mean(numeric_only=True)['Measurement'].values - grand_mean)**2)
 
     if(interaction):
         SS_Repeatability = 0
@@ -23,7 +42,7 @@ def sumSquares(GRR, interaction=True):
                 pbo = df[(df['Part']==part) & (df['Operator']==operator)]['Measurement'].values
                 pbo_mean = pbo.mean()
                 SS_Repeatability += np.sum((pbo - pbo_mean)**2)
-        SS_Part_by_Operator = SS_Total - SS_Part - SS_Operator
+        SS_Part_by_Operator = SS_Total - SS_Part - SS_Operator - SS_Repeatability
         return {'SS_Total': SS_Total, 'SS_Part': SS_Part, 'SS_Operator': SS_Operator, 'SS_Part_by_Operator': SS_Part_by_Operator, 'SS_Repeatability': SS_Repeatability}
     else:
         SS_Repeatability = SS_Total - SS_Part - SS_Operator
@@ -49,11 +68,12 @@ def mean_squares(GRR, interaction=True):
     ssqs = sumSquares(GRR, interaction=interaction)
     dof = dofs(GRR, interaction=interaction)
 
-    MS = lambda x: ssqs['SS_'+x]/dof['DOF_'+x]
+    MS = lambda x: float(ssqs['SS_'+x]/dof['DOF_'+x])
 
     MS_Part = MS('Part')
     MS_Operator = MS('Operator')
-    MS_Repeatability = MS('Repeatability')
+    MS_Repeatability = MS('Repeatability') 
+ 
     if(interaction):
         MS_Part_by_Operator = MS('Part_by_Operator')
         return {'MS_Part': MS_Part, 'MS_Operator': MS_Operator, 'MS_Part_by_Operator': MS_Part_by_Operator, 'MS_Repeatability': MS_Repeatability}
@@ -76,7 +96,7 @@ def Fs(GRR, interaction=True):
 def p_values(GRR, interaction=True):
     F_values = Fs(GRR, interaction=interaction)
     dof = dofs(GRR, interaction=interaction)
-    p = lambda F, df1, df2: stats.f.cdf(F, df1, df2)
+    p = lambda F, df1, df2: 1 - stats.f.cdf(F, df1, df2)
     
     if(interaction):
         p_Part = p(F_values['F_Part'], dof['DOF_Part'], dof['DOF_Part_by_Operator'])
@@ -124,9 +144,9 @@ class GRR(object):
             df = df_add(['Part', 'Operator', 'Part * Operator', 'Repeatability', 'Total'], 
                         [dof['DOF_Part'], dof['DOF_Operator'], dof['DOF_Part_by_Operator'], dof['DOF_Repeatability'], dof['DOF_Total']], 
                         [ssqs['SS_Part'], ssqs['SS_Operator'], ssqs['SS_Part_by_Operator'], ssqs['SS_Repeatability'], ssqs['SS_Total']], 
-                        [msqs['MS_Part'], msqs['MS_Operator'], msqs['MS_Part_by_Operator'], msqs['MS_Repeatability'], None], 
-                        [F_s['F_Part'], F_s['F_Operator'], F['F_Part_by_Operator'], None, None], 
-                        [ps['p_Part'], ps['p_Operator'], ps['p_Part_by_Operator'], None, None]) 
+                        [msqs['MS_Part'], msqs['MS_Operator'], msqs['MS_Part_by_Operator'], msqs['MS_Repeatability'], ''], 
+                        [F_s['F_Part'], F_s['F_Operator'], F_s['F_Part_by_Operator'], '', ''], 
+                        [ps['p_Part'], ps['p_Operator'], ps['p_Part_by_Operator'], '', '']) 
             
         return df
     
@@ -143,9 +163,10 @@ class GRR(object):
             vc_reproducibility = vc_operator
             vc_total_grr = vc_repeatability + vc_reproducibility
             total_var = vc_total_grr + vc_parts
-            df = df_add(['Total Gage R&R', '\tRepeatability', '\tReproducibility', '\t\tOperator', 'Part-to-Part', 'Total Variation'],
+            df = df_add(['Total Gage R&R', 'Repeatability', 'Reproducibility', 'Operator', 'Part-to-Part', 'Total Variation'],
                         [x if x>0 else 0 for x in [vc_total_grr, vc_repeatability, vc_reproducibility, vc_operator, vc_parts, total_var]],
                         [x if x>0 else 0 for x in np.array([vc_total_grr, vc_repeatability, vc_reproducibility, vc_operator, vc_parts, total_var])/total_var])
+            self.vc_table = df
             return df
             
         else:
@@ -157,9 +178,10 @@ class GRR(object):
             vc_reproducibility = vc_operator - vc_part_by_operator
             vc_total_grr = vc_repeatability + vc_reproducibility
             total_var = vc_total_grr + vc_parts
-            df = df_add(['Total Gage R&R', '\tRepeatability', '\tReproducibility', '\t\t Part * Operator', '\t\tOperator', 'Part-to-Part', 'Total Variation'],
+            df = df_add(['Total Gage R&R', 'Repeatability', 'Reproducibility', 'Part * Operator', 'Operator', 'Part-to-Part', 'Total Variation'],
             [x if x>0 else 0 for x in [vc_total_grr, vc_repeatability, vc_reproducibility, vc_operator, vc_part_by_operator, vc_parts, total_var]],
             [x if x>0 else 0 for x in np.array([vc_total_grr, vc_repeatability, vc_reproducibility, vc_operator, vc_part_by_operator, vc_parts, total_var])/ total_var])
+            self.vc_table = df
             return df
     
     def GRR(self, study_var_coeff=5.15, **kwargs):
@@ -170,8 +192,12 @@ class GRR(object):
         
         if('tolerance' in kwargs):
             pct_tols = studyVars/kwargs.get('tolerance')
-            return pd.DataFrame({'Source': components, 'StdDev': stds, f'Study Var {study_var_coeff} * stdDev':studyVars, '% Study Var': studyVars/studyVars[-1], '% Tolerance': pct_tols})
+            result = pd.DataFrame({'Source': components, 'StdDev': stds, f'Study Var {study_var_coeff} * stdDev':studyVars, '% Study Var': studyVars/studyVars[-1], '% Tolerance': pct_tols})
+            self.GRR_Table = result
+            return result
         else:
-            return pd.DataFrame({'Source': components, 'StdDev': stds, f'Study Var {study_var_coeff} * stdDev':studyVars, '% Study Var': studyVars/studyVars[-1]})
+            result = pd.DataFrame({'Source': components, 'StdDev': stds, f'Study Var {study_var_coeff} * stdDev':studyVars, '% Study Var': studyVars/studyVars[-1]})
+            self.GRR_Table = result
+            return result
 
         
