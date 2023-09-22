@@ -1,8 +1,9 @@
-import pyGRR
+import GRR
 import pandas as pd
 from matplotlib import pyplot as plt
 import numpy as np
 import seaborn as sns
+import matplotlib.ticker as mtick
 from abc import ABC, abstractmethod
 sns.set()
 
@@ -28,8 +29,8 @@ class components_of_variation(plotter):
         varcomp = self.varComp
         varcomp = varcomp[varcomp['Source'].isin(components)]
 
-        h1 = varcomp['% Contribution (of VarComp)'].values
-        h2 = GRR_Table['% Study Var'].values
+        h1 = varcomp['% Contribution (of VarComp)'].values * 100
+        h2 = GRR_Table['% Study Var'].values * 100
 
         # Set position of bar on X axis
         br1 = np.arange(len(h1))
@@ -42,10 +43,14 @@ class components_of_variation(plotter):
         edgecolor ='grey', label ='%Study Var')
 
         if('% Tolerance' in GRR_Table.columns):
-            h3 = GRR_Table['% Tolerance'].values
+            h3 = GRR_Table['% Tolerance'].values * 100
             br3 = [x + barWidth for x in br2]
             ax.bar(br3, h3, color ='b', width = barWidth,
             edgecolor ='grey', label ='%Tolerance')
+            
+        fmt = '%.0f%%' # Format you want the ticks, e.g. '40%'
+        yticks = mtick.FormatStrFormatter(fmt)
+        ax.yaxis.set_major_formatter(yticks)
 
         ax.legend()
         ax.set_title('Components of Variation')
